@@ -425,6 +425,13 @@
       let flights = JSON.parse(document.getElementById("flights-data").textContent || "[]");
       let selectedId = JSON.parse(document.getElementById("selected-id-data").textContent || '""');
       let watchedSet = new Set(JSON.parse(document.getElementById("watched-data").textContent || "[]"));
+      const isEmbedded = window.location.protocol === "about:" || window.self !== window.top;
+      if (isEmbedded) {
+        try {
+          const savedWatch = JSON.parse(localStorage.getItem("strange_crew_watchlist") || "[]");
+          if (Array.isArray(savedWatch)) watchedSet = new Set(savedWatch);
+        } catch (_) {}
+      }
       const suaZones = JSON.parse(document.getElementById("sua-data").textContent || "[]");
       let currentFilter = JSON.parse(document.getElementById("filter-data").textContent || '"all"');
       let currentQuery = JSON.parse(document.getElementById("query-data").textContent || '""');
@@ -1079,8 +1086,10 @@
         const options = Object.assign({ pushHistory: true, panMap: true }, opts);
         if (!flightId || flightId === selectedId) return;
         selectedId = flightId;
-        if (options.pushHistory) {
-          history.pushState({ flight: selectedId, filter: currentFilter, q: currentQuery }, "", buildCardUrl(selectedId));
+        if (!isEmbedded && options.pushHistory) {
+          try {
+            history.pushState({ flight: selectedId, filter: currentFilter, q: currentQuery }, "", buildCardUrl(selectedId));
+          } catch (_) {}
         }
         renderSidebarCards();
         renderDetailDrawer();
@@ -1112,8 +1121,10 @@
         }
       });
 
-      if (selectedId) {
-        history.replaceState({ flight: selectedId, filter: currentFilter, q: currentQuery }, "", window.location.href);
+      if (!isEmbedded && selectedId) {
+        try {
+          history.replaceState({ flight: selectedId, filter: currentFilter, q: currentQuery }, "", window.location.href);
+        } catch (_) {}
       }
 
       function renderSidebarCards() {
@@ -1207,6 +1218,18 @@
         form.addEventListener("submit", function (ev) {
           ev.preventDefault();
           unlockAudio();
+          const fid = (new FormData(form).get("flight") || "").toString().trim().toUpperCase();
+
+          if (isEmbedded) {
+            if (watchedSet.has(fid)) watchedSet.delete(fid);
+            else watchedSet.add(fid);
+            localStorage.setItem("strange_crew_watchlist", JSON.stringify(Array.from(watchedSet)));
+            document.getElementById("stat-watched").textContent = String(watchedSet.size).padStart(2, "0");
+            recordWatchState(flights, false);
+            renderDetailDrawer();
+            return;
+          }
+
           const fd = new URLSearchParams(new FormData(form));
           fetch("/watch", {
             method: "POST",
@@ -1232,6 +1255,7 @@
       if (homeQth) renderDetailDrawer();
 
       function pollRadarFeed() {
+        if (isEmbedded) return;
         const params = new URLSearchParams();
         params.set("filter", currentFilter);
         if (currentQuery) params.set("q", currentQuery);
